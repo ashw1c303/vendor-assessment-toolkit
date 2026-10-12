@@ -1,0 +1,20 @@
+{
+  "name": "vendor-onboarding",
+  "private": true,
+  "type": "module",
+  "description": "Acme vendor onboarding agent: intake, collection, fitment, architecture, approval, and a weekly leadership summary.",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "dev": "bdk dev --mode single",
+    "validate": "bdk validate --dir .",
+    "eval": "bdk eval --dir . --tag smoke"
+  },
+  "dependencies": {
+    "@cursor/bdk": "^0.2.23",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "typescript": "6.0.3"
+  }
+}

@@ -2,7 +2,7 @@
 
 BDK agent that onboards vendors onto Acme's exchange: trade matching, clearing, and market surveillance. The agent runs on Node (22.13 or newer). Do not use Bun.
 
-Records live in `ctx.host.kv`. Architecture guidelines live in the agent, so fitment does not need a vector database. Research uses a Firecrawl MCP connection when `FIRECRAWL_API_KEY` is set, and a fixture input when it is not.
+Records live in `ctx.host.kv` as the fast local session cache. **MongoDB Atlas** is the durable stage tracker (`bot/lib/vendor-store.ts`): every status write upserts the vendor request (with embedded `stageHistory`) when `MONGODB_URI` is set. Architecture guidelines live in the agent, so fitment does not need a vector database. Research uses a Firecrawl MCP connection when `FIRECRAWL_API_KEY` is set, and a fixture input when it is not.
 
 ## Pipeline
 
@@ -12,6 +12,33 @@ Records live in `ctx.host.kv`. Architecture guidelines live in the agent, so fit
 4. **Architecture brief.** The agent delegates to four specialists (public research, internal fit, integration risk, PlantUML), then compiles one Solution Architecture Brief and PlantUML diagram.
 5. **Human approval.** `record_approval_decision` records approve, reject, or needs-more-info. Approve parks for a human confirmation and is the only path to an RFP. Needs-more-info returns the request to collection. `generate_rfp` refuses unless status is `approved`.
 6. **Weekly leadership summary.** Mondays at 09:00 UTC, `weekly_leadership_summary` aggregates approved requests into a Business Value Proposition (strategic fit with clearing and exchange goals, cost signals, competitive notes). Without Slack tokens, the tool result is the summary.
+
+Statuses: `intake` → `collecting` → `researched` → `awaiting_approval` → `approved` | `rejected`.
+
+## MongoDB Atlas stage tracking
+
+| Env var | Role |
+| --- | --- |
+| `MONGODB_URI` | Atlas / Mongo connection string (required for durable writes) |
+| `MONGODB_DB` | Database name (default `vendor_onboarding`) |
+| `MONGODB_COLLECTION` | Collection name (default `vendor_requests`) |
+| `MONGODB_MOCK` | Set to `1` for an in-process mock store (CI / local smoke) |
+
+Each document includes `requestId`, current `status`, timestamps, embedded `stageHistory` (`{ status, at, note? }`), and the key vendor fields from host.kv. When `MONGODB_URI` is unset, tools still succeed and return `atlas: { ok: false, error: "mongodb_uri_unset", ... }`.
+
+Cursor / Grok can query Atlas via the optional MCP connection in `bot/mcp-connections/atlas.ts` (stdio `mongodb-mcp-server`, `MDB_MCP_CONNECTION_STRING=${MONGODB_URI}`). Never commit `.env.local`.
+
+Verify a stage appears in Atlas:
+
+```bash
+# Local mock smoke (no cluster required)
+npm run smoke:atlas
+
+# Live: set MONGODB_URI in .env.local, then
+npx bdk call record_vendor_request --dir . --input '{"requesterName":"Priya Shah","vendorName":"Northwind Markets","serviceCategory":"drop-copy surveillance","urgency":"high"}'
+# Inspect the tool result's atlas field, then find the doc in Compass / Atlas UI
+# or via the atlas MCP tools (database vendor_onboarding, collection vendor_requests).
+```
 
 ## Run locally
 
@@ -52,6 +79,7 @@ Approving from the playground parks `record_approval_decision` until a person co
 npm run check
 npx bdk validate --dir .
 npx bdk info --dir . --json
+npm run smoke:atlas
 npx bdk eval --dir . --list
 npx bdk eval --dir . --tag smoke
 ```
@@ -60,10 +88,11 @@ npx bdk eval --dir . --tag smoke
 
 ## Follow-ups for live delivery
 
-Slack and Firecrawl are not required for local HTTP, the playground, or fixture research.
+Slack, Firecrawl, and Atlas are not required for local HTTP, the playground, or fixture research.
 
 - Slack: `npx bdk slack create --dir . --name "Vendor Onboarding" --prefix VENDOR_ONBOARDING`
   That wizard attaches the Slack app and writes `VENDOR_ONBOARDING_SLACK_BOT_TOKEN` and `VENDOR_ONBOARDING_SLACK_APP_TOKEN` to `.env.local`. Do not commit that file. Set `VENDOR_ONBOARDING_EXEC_SLACK_CHANNEL` when the Monday summary should post to an executive channel.
 - Research: set `FIRECRAWL_API_KEY`. Exa is an acceptable swap; see the comment in `bot/mcp-connections/research.ts`.
+- Atlas: set `MONGODB_URI` (and optionally `MONGODB_DB` / `MONGODB_COLLECTION`) in `.env.local`.
 
 Names for those variables are listed in `env.example`.

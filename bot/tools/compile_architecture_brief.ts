@@ -2,7 +2,8 @@ import { prompt } from "@cursor/bdk";
 import { defineTool } from "@cursor/bdk/tools";
 import { z } from "zod";
 import { compileBrief } from "../lib/documents.js";
-import { getRequest, saveRequest, withBrief } from "../lib/record.js";
+import { withBrief } from "../lib/record.js";
+import { getVendorRequest, saveVendorRequest } from "../lib/vendor-store.js";
 
 export default defineTool({
   description: prompt`
@@ -10,7 +11,8 @@ export default defineTool({
     four subagents (public-research, internal-fit, integration-risk,
     plantuml) have reported. Pass their notes. Missing notes are filled
     from the stored research and Acme guidelines. Moves the request to
-    awaiting_approval. Does not generate an RFP.
+    awaiting_approval. Does not generate an RFP. Persists the stage to
+    MongoDB Atlas when configured.
   `,
   effect: "write",
   inputSchema: z.object({
@@ -21,7 +23,7 @@ export default defineTool({
     plantUml: z.string().optional(),
   }),
   async execute(input, ctx) {
-    const request = await getRequest(ctx.host.kv, input.requestId);
+    const request = await getVendorRequest(ctx.host.kv, input.requestId);
     if (request === undefined) {
       return { ok: false as const, error: "not_found", requestId: input.requestId };
     }
@@ -41,13 +43,17 @@ export default defineTool({
     }
     const brief = compileBrief(request, input);
     const updated = withBrief(request, brief.markdown, brief.plantUml, new Date().toISOString());
-    await saveRequest(ctx.host.kv, updated);
+    const { atlas } = await saveVendorRequest(ctx.host.kv, updated, {
+      note: "architecture_brief",
+      previousStatus: request.status,
+    });
     return {
       ok: true as const,
       requestId: updated.id,
       status: updated.status,
       architectureBrief: updated.architectureBrief,
       plantUml: updated.plantUml,
+      atlas,
     };
   },
 });

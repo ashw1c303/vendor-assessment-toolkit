@@ -2,9 +2,10 @@ import { prompt } from "@cursor/bdk";
 import { defineTool } from "@cursor/bdk/tools";
 import { z } from "zod";
 import { scoreFitment } from "../lib/documents.js";
-import { getRequest, researchBlocked, saveRequest, withResearch } from "../lib/record.js";
+import { researchBlocked, withResearch } from "../lib/record.js";
 import { gatherResearch } from "../lib/research.js";
 import { researchFixtureInput } from "../lib/schemas.js";
+import { getVendorRequest, saveVendorRequest } from "../lib/vendor-store.js";
 
 export default defineTool({
   description: prompt`
@@ -13,6 +14,7 @@ export default defineTool({
     overlap with Acme modules. Refuses while required fields are missing.
     Pass fixture when no Firecrawl key is configured or when the caller
     supplies pinned research. Do not call Firecrawl tools yourself.
+    Persists the researched stage to MongoDB Atlas when configured.
   `,
   effect: "write",
   inputSchema: z.object({
@@ -20,7 +22,7 @@ export default defineTool({
     fixture: researchFixtureInput.optional(),
   }),
   async execute({ requestId, fixture }, ctx) {
-    const request = await getRequest(ctx.host.kv, requestId);
+    const request = await getVendorRequest(ctx.host.kv, requestId);
     if (request === undefined) {
       return { ok: false as const, error: "not_found", requestId, advancedToResearch: false as const };
     }
@@ -52,7 +54,10 @@ export default defineTool({
     }
     const scored = scoreFitment(request, gathered.signals);
     const updated = withResearch(request, scored, new Date().toISOString());
-    await saveRequest(ctx.host.kv, updated);
+    const { atlas } = await saveVendorRequest(ctx.host.kv, updated, {
+      note: "research_complete",
+      previousStatus: request.status,
+    });
     return {
       ok: true as const,
       requestId,
@@ -63,6 +68,7 @@ export default defineTool({
       researchSource: gathered.signals.source,
       missingFields: updated.missingFields,
       advancedToResearch: true as const,
+      atlas,
     };
   },
 });

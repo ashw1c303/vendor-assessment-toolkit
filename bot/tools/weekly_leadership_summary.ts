@@ -2,7 +2,12 @@ import { prompt } from "@cursor/bdk";
 import { defineTool } from "@cursor/bdk/tools";
 import { z } from "zod";
 import { leadershipSummary } from "../lib/documents.js";
-import { listRequests, readLeadership, saveLeadership, type LeadershipSnapshot } from "../lib/record.js";
+import type { LeadershipSnapshot } from "../lib/record.js";
+import {
+  listVendorRequests,
+  readLeadershipSnapshot,
+  saveLeadershipSnapshot,
+} from "../lib/vendor-store.js";
 
 const EXEC_CHANNEL = "VENDOR_ONBOARDING_EXEC_SLACK_CHANNEL";
 
@@ -27,7 +32,9 @@ export default defineTool({
     for leadership: strategic fit with clearing and exchange goals, cost
     signals, and competitive notes. Pass source "schedule" from the Monday
     job and source "read" to return the last summary without regenerating.
-    When Slack is not configured, the tool result is the summary.
+    When Slack is not configured, the tool result is the summary. Reads the
+    vendor request index through the shared vendor store (host.kv cache;
+    Atlas is the durable stage tracker).
   `,
   effect: (input) => (input.source === "read" ? "read" : "write"),
   inputSchema: z.object({
@@ -36,11 +43,11 @@ export default defineTool({
   async execute(input, ctx) {
     const source = input.source ?? "tool";
     if (source === "read") {
-      const stored = await readLeadership(ctx.host.kv);
+      const stored = await readLeadershipSnapshot(ctx.host.kv);
       if (stored === undefined) return { ok: false as const, error: "no_summary" };
       return { ok: true as const, ...stored };
     }
-    const requests = await listRequests(ctx.host.kv);
+    const requests = await listVendorRequests(ctx.host.kv);
     const built = leadershipSummary(requests, new Date().toISOString());
     const delivery = await postSummary(ctx, built.summary);
     const snapshot: LeadershipSnapshot = {
@@ -52,7 +59,7 @@ export default defineTool({
       posted: delivery.posted,
       postReason: delivery.postReason,
     };
-    await saveLeadership(ctx.host.kv, snapshot);
+    await saveLeadershipSnapshot(ctx.host.kv, snapshot);
     return { ok: true as const, ...snapshot };
   },
 });

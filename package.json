@@ -7,14 +7,17 @@
     "check": "tsc --noEmit",
     "dev": "bdk dev --mode single",
     "validate": "bdk validate --dir .",
-    "eval": "bdk eval --dir . --tag smoke"
+    "eval": "bdk eval --dir . --tag smoke",
+    "smoke:atlas": "MONGODB_MOCK=1 npx --yes tsx scripts/smoke-atlas-stage.ts"
   },
   "dependencies": {
     "@cursor/bdk": "^0.2.23",
+    "mongodb": "^6.21.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "tsx": "^4.20.0",
     "typescript": "6.0.3"
   }
 }

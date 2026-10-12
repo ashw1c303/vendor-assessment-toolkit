@@ -1,7 +1,8 @@
 import { prompt } from "@cursor/bdk";
 import { defineTool } from "@cursor/bdk/tools";
 import { z } from "zod";
-import { draftFollowUp, getRequest } from "../lib/record.js";
+import { draftFollowUp } from "../lib/record.js";
+import { getVendorRequest } from "../lib/vendor-store.js";
 
 export default defineTool({
   description: prompt`
@@ -12,7 +13,7 @@ export default defineTool({
   effect: "read",
   inputSchema: z.object({ requestId: z.string().min(1) }),
   async execute({ requestId }, ctx) {
-    const request = await getRequest(ctx.host.kv, requestId);
+    const request = await getVendorRequest(ctx.host.kv, requestId);
     if (request === undefined) {
       return { ok: false as const, error: "not_found", requestId, advancedToResearch: false as const };
     }

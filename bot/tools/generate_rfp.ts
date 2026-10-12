@@ -2,13 +2,15 @@ import { prompt } from "@cursor/bdk";
 import { defineTool } from "@cursor/bdk/tools";
 import { z } from "zod";
 import { compileRfp } from "../lib/documents.js";
-import { getRequest, saveRequest, withRfp } from "../lib/record.js";
+import { withRfp } from "../lib/record.js";
+import { getVendorRequest, saveVendorRequest } from "../lib/vendor-store.js";
 
 export default defineTool({
   description: prompt`
     Generate the RFP document for a vendor request. Refuses unless status is
     approved. Approve is the only path that may create an RFP. This tool
-    stores the document and does not send it.
+    stores the document and does not send it. Persists the update to
+    MongoDB Atlas when configured.
   `,
   effect: "write",
   inputSchema: z.object({
@@ -16,7 +18,7 @@ export default defineTool({
     regenerate: z.boolean().optional(),
   }),
   async execute({ requestId, regenerate }, ctx) {
-    const request = await getRequest(ctx.host.kv, requestId);
+    const request = await getVendorRequest(ctx.host.kv, requestId);
     if (request === undefined) return { ok: false as const, error: "not_found", requestId };
     if (request.status !== "approved") {
       return {
@@ -31,7 +33,17 @@ export default defineTool({
       return { ok: true as const, requestId, status: request.status, rfp: request.rfp, created: false as const };
     }
     const updated = withRfp(request, compileRfp(request), new Date().toISOString());
-    await saveRequest(ctx.host.kv, updated);
-    return { ok: true as const, requestId, status: updated.status, rfp: updated.rfp, created: true as const };
+    const { atlas } = await saveVendorRequest(ctx.host.kv, updated, {
+      note: "rfp_generated",
+      previousStatus: request.status,
+    });
+    return {
+      ok: true as const,
+      requestId,
+      status: updated.status,
+      rfp: updated.rfp,
+      created: true as const,
+      atlas,
+    };
   },
 });

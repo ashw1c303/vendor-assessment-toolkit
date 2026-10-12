@@ -1,7 +1,8 @@
 import { prompt } from "@cursor/bdk";
 import { defineTool } from "@cursor/bdk/tools";
 import { z } from "zod";
-import { getRequest, saveRequest, withDecision } from "../lib/record.js";
+import { withDecision } from "../lib/record.js";
+import { getVendorRequest, saveVendorRequest } from "../lib/vendor-store.js";
 
 const inputSchema = z.object({
   requestId: z.string().min(1),
@@ -15,13 +16,14 @@ export default defineTool({
     Record a human approval decision on a vendor request. approve is allowed
     only from awaiting_approval and parks for a human confirmation before it
     runs. reject closes the request. needs-more-info returns it to collection.
-    This tool does not generate an RFP.
+    This tool does not generate an RFP. Persists the decision stage to
+    MongoDB Atlas when configured.
   `,
   effect: "write",
   needsApproval: (input) => input.decision === "approve",
   inputSchema,
   async execute(input, ctx) {
-    const request = await getRequest(ctx.host.kv, input.requestId);
+    const request = await getVendorRequest(ctx.host.kv, input.requestId);
     if (request === undefined) {
       return { ok: false as const, error: "not_found", requestId: input.requestId, decision: input.decision };
     }
@@ -47,7 +49,14 @@ export default defineTool({
         },
       };
     }
-    await saveRequest(ctx.host.kv, stored);
+    const stageNote =
+      input.note !== undefined && input.note.trim() !== ""
+        ? `${input.decision}: ${input.note.trim()}`
+        : input.decision;
+    const { atlas } = await saveVendorRequest(ctx.host.kv, stored, {
+      note: stageNote,
+      previousStatus: request.status,
+    });
     return {
       ok: true as const,
       requestId: stored.id,
@@ -55,6 +64,7 @@ export default defineTool({
       status: stored.status,
       missingFields: stored.missingFields,
       rfpGenerated: false as const,
+      atlas,
     };
   },
 });
